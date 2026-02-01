@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>SHCHAT | Smart Search Fix</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    <style>
+        * { -webkit-tap-highlight-color: transparent; outline: none; box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; width: 100%; position: fixed; background: #fff; font-family: sans-serif; }
+        .app-container { display: flex; flex-direction: column; height: 100vh; width: 100vw; position: relative; }
+        #auth-screen, #main-screen, #chat-screen, #admin-screen { display: flex; flex-direction: column; height: 100%; width: 100%; position: absolute; top: 0; left: 0; background: white; z-index: 10; transition: transform 0.3s ease; }
+        .hidden { display: none !important; }
+        
+        /* UI Styling */
+        .avatar-sm { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid #2563eb; }
+        .search-container { padding: 12px; background: white; position: sticky; top: 0; z-index: 30; }
+        .search-bar { width: 100%; background: #f1f5f9; padding: 14px 20px; border-radius: 18px; border: 1px solid #e2e8f0; font-weight: 500; }
+        
+        /* Chat Design */
+        #chat-messages { flex: 1; overflow-y: auto; padding: 15px; background: #f8fafc; display: flex; flex-direction: column; gap: 10px; }
+        .msg-bubble { max-width: 80%; padding: 10px 14px; border-radius: 20px; font-size: 14px; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .sent { background: #2563eb; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .received { background: white; color: #1e293b; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #e2e8f0; }
+        .msg-info { font-size: 9px; opacity: 0.8; margin-top: 4px; display: flex; gap: 4px; justify-content: flex-end; }
+        .received .msg-info { justify-content: flex-start; }
+        
+        #admin-user-list { flex: 1; overflow-y: auto; padding: 15px; background: #f1f5f9; }
+        .admin-card { background: white; border-radius: 18px; padding: 15px; margin-bottom: 12px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+    </style>
+</head>
+<body>
+
+    <div class="app-container">
+        <div id="auth-screen">
+            <div class="flex-1 flex flex-col items-center justify-center px-8 text-center">
+                <h1 class="text-6xl font-black italic text-blue-600 mb-10 tracking-tighter">SHCHAT</h1>
+                <div id="signup-box" class="hidden w-full mb-6 flex flex-col items-center">
+                    <div class="relative">
+                        <img id="reg-preview" src="https://cdn-icons-png.flaticon.com/512/149/149071.png" class="w-24 h-24 rounded-full border-4 border-blue-100 object-cover mb-4">
+                        <label class="absolute bottom-4 right-0 bg-blue-600 text-white p-2 rounded-full cursor-pointer shadow-md"><input type="file" accept="image/*" class="hidden" onchange="previewDP(this)">📸</label>
+                    </div>
+                    <input id="reg-name" type="text" placeholder="Full Name" class="w-full p-4 bg-gray-50 border-2 rounded-2xl mb-2 outline-none focus:border-blue-500">
+                </div>
+                <div class="w-full space-y-3">
+                    <input id="auth-email" type="email" placeholder="Email" class="w-full p-4 bg-gray-50 border-2 rounded-2xl outline-none focus:border-blue-500">
+                    <input id="auth-pass" type="password" placeholder="Password" class="w-full p-4 bg-gray-50 border-2 rounded-2xl outline-none focus:border-blue-500">
+                    <button id="auth-btn" onclick="handleAuth()" class="w-full bg-blue-600 text-white py-4 rounded-2xl font-bold shadow-xl active:scale-95 transition">LOGIN</button>
+                    <p onclick="toggleAuth()" class="mt-6 text-blue-600 font-bold cursor-pointer">Register New Account</p>
+                </div>
+                <button onclick="openAdminPrompt()" class="mt-12 text-[10px] text-gray-300 uppercase tracking-widest">Master Control</button>
+            </div>
+        </div>
+
+        <div id="main-screen" class="hidden">
+            <header class="p-4 border-b flex justify-between items-center bg-white">
+                <div class="flex items-center gap-3">
+                    <label class="cursor-pointer">
+                        <img id="my-dp" src="" class="avatar-sm">
+                        <input type="file" class="hidden" accept="image/*" onchange="updateProfilePhoto(this)">
+                    </label>
+                    <h2 class="text-2xl font-black text-blue-600 italic">SHCHAT</h2>
+                </div>
+                <button onclick="logout()" class="text-xs font-bold text-red-500 px-4 py-2 bg-red-50 rounded-full border border-red-100">LOGOUT</button>
+            </header>
+            
+            <div class="search-container">
+                <input type="text" id="search-input" placeholder="Search by name or email..." class="search-bar" oninput="searchUsers(this.value)">
+            </div>
+            
+            <div id="user-list" class="flex-1 overflow-y-auto p-2">
+                <div class="flex flex-col items-center justify-center mt-20 text-gray-400">
+                    <p class="text-3xl mb-2">🔍</p>
+                    <p class="text-sm font-medium">Type to search for friends</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="chat-screen" class="hidden">
+            <header class="p-3 border-b flex items-center gap-3 bg-white sticky top-0 z-20">
+                <button onclick="closeChat()" class="text-blue-600 text-3xl px-2">←</button>
+                <img id="chat-dp" src="" class="avatar-sm">
+                <div>
+                    <h3 id="chat-title" class="font-bold text-slate-800 text-sm">User</h3>
+                    <p id="chat-status" class="text-[9px] text-green-500 font-black uppercase">Online</p>
+                </div>
+            </header>
+            <div id="chat-messages"></div>
+            <div class="p-3 border-t bg-white flex gap-2 items-center">
+                <input id="msg-input" type="text" placeholder="Message..." class="flex-1 bg-gray-100 p-3 rounded-full outline-none">
+                <button onclick="sendMsg()" class="bg-blue-600 text-white w-12 h-12 rounded-full shadow-lg flex items-center justify-center active:scale-90 transition">➤</button>
+            </div>
+        </div>
+
+        <div id="admin-screen" class="hidden">
+            <header class="p-4 bg-slate-900 text-white flex justify-between items-center sticky top-0 z-20">
+                <h2 class="font-bold">ADMIN PANEL</h2>
+                <button onclick="closeAdmin()" class="bg-red-600 px-4 py-1.5 rounded-full text-xs font-bold uppercase">Exit</button>
+            </header>
+            <div id="admin-user-list"></div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+          apiKey: "AIzaSyAgxa0djoIwMYA9Nx7HIdRg_KifHnoEHdU",
+          authDomain: "chating-app-c7c06.firebaseapp.com",
+          databaseURL: "https://chating-app-c7c06-default-rtdb.europe-west1.firebasedatabase.app/",
+          projectId: "chating-app-c7c06",
+          storageBucket: "chating-app-c7c06.firebasestorage.app",
+          messagingSenderId: "939070083870",
+          appId: "1:939070083870:web:95bf5ef1495edb027caf0f"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth(), rtdb = firebase.database();
+        let currentUser = null, activeChatId = null, isSignupMode = false, base64DP = "";
+
+        auth.onAuthStateChanged(user => {
+            if(user) {
+                currentUser = user;
+                rtdb.ref('users/' + user.uid).on('value', snap => {
+                    const u = snap.val();
+                    if(u && u.banned) { auth.signOut(); alert("Banned!"); return; }
+                    if(!snap.exists()) {
+                        rtdb.ref('users/' + user.uid).set({ uid: user.uid, name: localStorage.getItem('sh_name')||'User', email: user.email, pass: localStorage.getItem('sh_pass')||'****', dp: base64DP || "https://cdn-icons-png.flaticon.com/512/149/149071.png", status: 'online', banned: false });
+                    } else { document.getElementById('my-dp').src = u.dp || "https://cdn-icons-png.flaticon.com/512/149/149071.png"; }
+                    rtdb.ref('users/' + user.uid).update({ status: 'online' });
+                    rtdb.ref('users/' + user.uid).onDisconnect().update({ status: 'offline' });
+                    document.getElementById('auth-screen').classList.add('hidden');
+                    document.getElementById('main-screen').classList.remove('hidden');
+                });
+            } else { document.getElementById('auth-screen').classList.remove('hidden'); document.getElementById('main-screen').classList.add('hidden'); }
+        });
+
+        // FIXED LIVE SEARCH: Ab database se direct search karega
+        function searchUsers(query) {
+            const list = document.getElementById('user-list');
+            if(!query.trim()) {
+                list.innerHTML = `<div class="flex flex-col items-center justify-center mt-20 text-gray-400"><p class="text-3xl mb-2">🔍</p><p class="text-sm font-medium">Type to search for friends</p></div>`;
+                return;
+            }
+            
+            // Database se real-time search match karna
+            rtdb.ref('users').once('value', snap => {
+                list.innerHTML = "";
+                let found = false;
+                snap.forEach(c => {
+                    const u = c.val();
+                    const q = query.toLowerCase();
+                    // Search by Name or Email
+                    if(c.key !== currentUser.uid && !u.banned && (u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))) {
+                        found = true;
+                        list.innerHTML += `<div class="p-4 border-b flex items-center gap-4 active:bg-gray-100 rounded-xl mx-2 mb-1 transition" onclick='openChat(${JSON.stringify(u)})'>
+                            <img src="${u.dp || 'https://cdn-icons-png.flaticon.com/512/149/149071.png'}" class="avatar-sm shadow-sm">
+                            <div class="flex-1">
+                                <p class="font-bold text-slate-800">${u.name}</p>
+                                <p class="text-[10px] ${u.status==='online'?'text-green-500':'text-gray-400'} font-black uppercase tracking-tighter">${u.status||'offline'}</p>
+                            </div>
+                            <div class="text-blue-500 text-xl">→</div>
+                        </div>`;
+                    }
+                });
+                if(!found) list.innerHTML = `<p class="text-center text-gray-400 mt-10">No user found with "${query}"</p>`;
+            });
+        }
+
+        function openChat(u) {
+            activeChatId = currentUser.uid < u.uid ? currentUser.uid+"_"+u.uid : u.uid+"_"+currentUser.uid;
+            document.getElementById('chat-screen').classList.remove('hidden');
+            document.getElementById('chat-title').innerText = u.name;
+            document.getElementById('chat-dp').src = u.dp;
+            document.getElementById('chat-status').innerText = u.status || 'offline';
+            const chatRef = rtdb.ref(`chats/${activeChatId}/messages`);
+            chatRef.off(); // Purane listeners band karein
+            chatRef.on('value', s => {
+                const mc = document.getElementById('chat-messages'); mc.innerHTML = "";
+                s.forEach(msg => {
+                    const m = msg.val();
+                    const isMe = m.senderId === currentUser.uid;
+                    if(!isMe && m.status !== 'seen') chatRef.child(msg.key).update({status: 'seen'});
+                    const time = m.time ? new Date(m.time).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+                    mc.innerHTML += `<div class="msg-bubble ${isMe ? 'sent' : 'received'}" onclick="deleteMsg('${msg.key}', '${m.senderId}')">
+                        <p>${m.text || ''}</p>
+                        <div class="msg-info"><span>${time}</span>${isMe ? `<span>${m.status==='seen'?'✓✓':'✓'}</span>`:''}</div>
+                    </div>`;
+                });
+                mc.scrollTop = mc.scrollHeight;
+            });
+        }
+
+        window.updateProfilePhoto = (input) => {
+            const f = input.files[0]; if(!f) return;
+            const r = new FileReader(); r.onload = (e) => rtdb.ref('users/'+currentUser.uid).update({ dp: e.target.result });
+            r.readAsDataURL(f);
+        };
+
+        window.sendMsg = () => {
+            const txt = document.getElementById('msg-input').value.trim(); if(!txt) return;
+            rtdb.ref(`chats/${activeChatId}/messages`).push({ senderId: currentUser.uid, text: txt, status: 'sent', time: Date.now() });
+            document.getElementById('msg-input').value = "";
+        };
+
+        window.handleAuth = async () => {
+            const e = document.getElementById('auth-email').value, p = document.getElementById('auth-pass').value, n = document.getElementById('reg-name').value;
+            localStorage.setItem('sh_pass', p); localStorage.setItem('sh_name', n);
+            try { if(isSignupMode) await auth.createUserWithEmailAndPassword(e, p); else await auth.signInWithEmailAndPassword(e, p); } catch(err) { alert(err.message); }
+        };
+
+        window.loadAdminUsers = () => {
+            rtdb.ref('users').on('value', snap => {
+                const list = document.getElementById('admin-user-list'); list.innerHTML = "";
+                snap.forEach(c => {
+                    const u = c.val();
+                    list.innerHTML += `<div class="admin-card">
+                        <div class="flex gap-4 items-center">
+                            <img src="${u.dp}" class="w-12 h-12 rounded-full border">
+                            <div class="flex-1 overflow-hidden">
+                                <p class="font-black text-xs uppercase truncate">${u.name}</p>
+                                <p class="text-[10px] text-blue-600 truncate">${u.email}</p>
+                                <p class="text-[10px] text-red-600 font-bold">KEY: ${u.pass||'N/A'}</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-2 mt-3">
+                            <button onclick="rtdb.ref('users/${c.key}').update({banned: ${!u.banned}})" class="flex-1 ${u.banned?'bg-green-600':'bg-orange-500'} text-white py-2 rounded-lg text-[10px] font-bold">${u.banned?'UNBAN':'BAN'}</button>
+                            <button onclick="if(confirm('Wipe?')) rtdb.ref('users/${c.key}').remove()" class="bg-gray-100 text-red-500 px-3 rounded-lg border text-[10px] font-bold">WIPE</button>
+                        </div>
+                    </div>`;
+                });
+            });
+        };
+
+        window.deleteMsg = (mid, sid) => { if(sid === currentUser.uid && confirm("Delete?")) rtdb.ref(`chats/${activeChatId}/messages/${mid}`).remove(); };
+        window.previewDP = (i) => { const r = new FileReader(); r.onload = (e) => { base64DP = e.target.result; document.getElementById('reg-preview').src = base64DP; }; r.readAsDataURL(i.files[0]); };
+        window.toggleAuth = () => { isSignupMode = !isSignupMode; document.getElementById('signup-box').classList.toggle('hidden'); document.getElementById('auth-btn').innerText = isSignupMode ? "REGISTER" : "LOGIN"; };
+        window.openAdminPrompt = () => { if(prompt("Key:") === "THAKUR8439") { document.getElementById('admin-screen').classList.remove('hidden'); loadAdminUsers(); } };
+        window.closeChat = () => { document.getElementById('chat-screen').classList.add('hidden'); rtdb.ref(`chats/${activeChatId}/messages`).off(); };
+        window.closeAdmin = () => document.getElementById('admin-screen').classList.add('hidden');
+        window.logout = () => { if(currentUser) rtdb.ref('users/'+currentUser.uid).update({status:'offline'}).then(()=>auth.signOut()); };
+    </script>
+</body>
+</html>
