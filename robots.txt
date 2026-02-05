@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://shivihacks.github.io/Turnament-app/sitemap.xml
